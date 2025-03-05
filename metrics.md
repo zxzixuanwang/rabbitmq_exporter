@@ -87,6 +87,14 @@ metric | description
 |exchange_messages_published_in_total|Count of messages published in to an exchange, i.e. not taking account of routing.|
 |exchange_messages_published_out_total|Count of messages published out of an exchange, i.e. taking account of routing.|
 
+## Exchanges_Bind - Gauge
+
+Labels: type, vhost, exchange
+
+metric | description
+-------| ------------
+|exchange_exchange_bindings| Number of bindings for an exchange.|
+
 ## Node - Counter
 
 Labels: cluster, node, self

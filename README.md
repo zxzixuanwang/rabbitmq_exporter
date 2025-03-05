@@ -9,26 +9,6 @@ Data is scraped by [prometheus](https://prometheus.io).
 
 Please note this an unofficial plugin. There is also an official plugin from [RabbitMQ.com](https://www.rabbitmq.com/prometheus.html). See [comparison to official exporter](#comparison-to-official-exporter)
 
-## Installation
-
-### Binary release
-
-You can download the latest release on the [release page](https://github.com/kbudde/rabbitmq_exporter/releases).
-Docker images are push to [docker hub](https://hub.docker.com/r/kbudde/rabbitmq-exporter/tags)
-
-### docker: rabbitmq container with network sharing
-
-The rabbitmq_exporter is sharing the network interface with the rabbitmq container -> it is possible to use localhost and default user/password (guest).
-
-1. Start rabbitMQ
-
-        docker run -d -e RABBITMQ_NODENAME=my-rabbit --name my-rabbit -p 9419:9419 rabbitmq:3-management
-
-1. Start rabbitmq_exporter in container.
-
-        docker run -d --net=container:my-rabbit kbudde/rabbitmq-exporter
-
-Now your metrics are exposed through [http://host:9419/metrics](http://host:9419/metrics). The management plugin does not need to be exposed.
 
 ## Configuration
 
