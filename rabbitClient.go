@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,7 +18,7 @@ var client = &http.Client{Timeout: 15 * time.Second} //default client for test. 
 func initClient() {
 	var roots *x509.CertPool
 
-	if data, err := ioutil.ReadFile(config.CAFile); err == nil {
+	if data, err := os.ReadFile(config.CAFile); err == nil {
 		roots = x509.NewCertPool()
 		if !roots.AppendCertsFromPEM(data) {
 			log.WithField("filename", config.CAFile).Error("Adding certificate to rootCAs failed")
@@ -93,7 +93,7 @@ func apiRequest(config rabbitExporterConfig, endpoint string) ([]byte, string, e
 		return nil, "", errors.New("Error while retrieving data from rabbitHost")
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	content := resp.Header.Get("Content-type")
 	if err != nil {

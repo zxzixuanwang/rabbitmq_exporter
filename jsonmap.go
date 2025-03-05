@@ -19,7 +19,7 @@ func makeJSONReply(body []byte) (RabbitReply, error) {
 	return &rabbitJSONReply{body, nil}, nil
 }
 
-//MakeStatsInfo creates a slice of StatsInfo from json input. Only keys with float values are mapped into `metrics`.
+// MakeStatsInfo creates a slice of StatsInfo from json input. Only keys with float values are mapped into `metrics`.
 func (rep *rabbitJSONReply) MakeStatsInfo(labels []string) []StatsInfo {
 	var statistics []StatsInfo
 	var jsonArr []map[string]interface{}
@@ -38,9 +38,10 @@ func (rep *rabbitJSONReply) MakeStatsInfo(labels []string) []StatsInfo {
 		field := ""
 		if _, fieldName := el["name"]; fieldName {
 			field = "name"
-		}
-		if _, fieldID := el["id"]; fieldID {
+		} else if _, fieldID := el["id"]; fieldID {
 			field = "id"
+		} else if _, fieldExchangeBind := el["destination"]; fieldExchangeBind {
+			field = "destination"
 		}
 		if field != "" {
 			log.WithFields(log.Fields{"element": el, "vhost": el["vhost"], field: el[field]}).Debug("Iterate over array")
@@ -67,7 +68,7 @@ func (rep *rabbitJSONReply) MakeStatsInfo(labels []string) []StatsInfo {
 	return statistics
 }
 
-//MakeMap creates a map from json input. Only keys with float values are mapped.
+// MakeMap creates a map from json input. Only keys with float values are mapped.
 func (rep *rabbitJSONReply) MakeMap() MetricMap {
 	flMap := make(MetricMap)
 	var output map[string]interface{}

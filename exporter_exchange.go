@@ -11,10 +11,10 @@ func init() {
 }
 
 var (
-	exchangeLabels    = []string{"cluster", "vhost", "exchange"}
-	exchangeLabelKeys = []string{"vhost", "name"}
-
-	exchangeCounterVec = map[string]*prometheus.Desc{
+	exchangeLabels        = []string{"cluster", "vhost", "exchange"}
+	exchangeLabelKeys     = []string{"vhost", "name", "type"}
+	exchangeBindLabelKeys = []string{"destination_type", "source", "vhost"}
+	exchangeCounterVec    = map[string]*prometheus.Desc{
 		"message_stats.publish":           newDesc("exchange_messages_published_total", "Count of messages published.", exchangeLabels),
 		"message_stats.publish_in":        newDesc("exchange_messages_published_in_total", "Count of messages published in to an exchange, i.e. not taking account of routing.", exchangeLabels),
 		"message_stats.publish_out":       newDesc("exchange_messages_published_out_total", "Count of messages published out of an exchange, i.e. taking account of routing.", exchangeLabels),
@@ -27,14 +27,17 @@ var (
 		"message_stats.redeliver":         newDesc("exchange_messages_redelivered_total", "Count of subset of messages in deliver_get which had the redelivered flag set.", exchangeLabels),
 		"message_stats.return_unroutable": newDesc("exchange_messages_returned_total", "Count of messages returned to publisher as unroutable.", exchangeLabels),
 	}
+	exchangeBindGaugeVec = newGaugeVec("exchange_exchange_bindings", "Number of bindings for an exchange. This value is cluster-wide.", []string{"exchange", "type", "vhost"})
 )
 
 type exporterExchange struct {
-	exchangeMetrics map[string]*prometheus.Desc
+	exchangeMetrics      map[string]*prometheus.Desc
+	exchangeBindGaugeVec *prometheus.GaugeVec
 }
 
 func newExporterExchange() Exporter {
 	exchangeCounterVecActual := exchangeCounterVec
+	exchangeBindGaugeVecActual := exchangeBindGaugeVec
 
 	if len(config.ExcludeMetrics) > 0 {
 		for _, metric := range config.ExcludeMetrics {
@@ -45,7 +48,8 @@ func newExporterExchange() Exporter {
 	}
 
 	return exporterExchange{
-		exchangeMetrics: exchangeCounterVecActual,
+		exchangeMetrics:      exchangeCounterVecActual,
+		exchangeBindGaugeVec: exchangeBindGaugeVecActual,
 	}
 }
 
@@ -59,11 +63,14 @@ func (e exporterExchange) Collect(ctx context.Context, ch chan<- prometheus.Metr
 	if n, ok := ctx.Value(clusterName).(string); ok {
 		cluster = n
 	}
-
+	bindInfoTempMap := make(map[string]*StatsInfo)
 	for key, countvec := range e.exchangeMetrics {
 		for _, exchange := range exchangeData {
 			ename := exchange.labels["name"]
 			vname := exchange.labels["vhost"]
+			if config.BindExchagesSet[ename] {
+				bindInfoTempMap[ename] = &exchange
+			}
 			if vhostIncluded := config.IncludeVHost.MatchString(vname); !vhostIncluded {
 				continue
 			}
@@ -80,6 +87,20 @@ func (e exporterExchange) Collect(ctx context.Context, ch chan<- prometheus.Metr
 				// log.WithFields(log.Fields{"vhost": exchange.vhost, "exchange": exchange.name, "key": key, "value": value}).Debug("Set exchange metric for key")
 				ch <- prometheus.MustNewConstMetric(countvec, prometheus.CounterValue, value, cluster, exchange.labels["vhost"], exchange.labels["name"])
 			}
+		}
+	}
+	for k := range config.BindExchagesSet {
+		if bindInfoTempMap[k] != nil {
+			url := "exchanges/%2F/" + k + "/bindings/source"
+			exchangeData, err := getStatsInfo(config, url, exchangeBindLabelKeys)
+			if err != nil {
+				return err
+			}
+
+			mqType := bindInfoTempMap[k].labels["type"]
+			mqVhost := bindInfoTempMap[k].labels["vhost"]
+			e.exchangeBindGaugeVec.WithLabelValues(k, mqType, mqVhost).Set(float64(len(exchangeData)))
+			e.exchangeBindGaugeVec.Collect(ch)
 		}
 	}
 

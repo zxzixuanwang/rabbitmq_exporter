@@ -37,6 +37,7 @@ var (
 		EnabledExporters:   []string{"exchange", "node", "overview", "queue"},
 		Timeout:            30,
 		MaxQueues:          0,
+		BindExchagesList:   []string{},
 	}
 )
 
@@ -71,6 +72,8 @@ type rabbitExporterConfig struct {
 	EnabledExporters         []string            `json:"enabled_exporters"`
 	Timeout                  int                 `json:"timeout"`
 	MaxQueues                int                 `json:"max_queues"`
+	BindExchagesList         []string            `json:"bind_exchange_list"`
+	BindExchagesSet          map[string]bool     `json:"-"`
 }
 
 type rabbitCapability string
@@ -106,6 +109,11 @@ func initConfigFromFile(configFile string) error {
 	config.SkipVHost = regexp.MustCompile(config.SkipVHostString)
 	config.IncludeVHost = regexp.MustCompile(config.IncludeVHostString)
 	config.RabbitCapabilities = parseCapabilities(config.RabbitCapabilitiesString)
+	config.BindExchagesSet = make(map[string]bool, len(config.BindExchagesList))
+	for _, v := range config.BindExchagesList {
+		config.BindExchagesSet[v] = true
+	}
+
 	return nil
 }
 
@@ -264,8 +272,8 @@ func isCapEnabled(config rabbitExporterConfig, cap rabbitCapability) bool {
 
 func selfLabel(config rabbitExporterConfig, isSelf bool) string {
 	if config.RabbitConnection == "loadbalancer" {
-        return "lb"
-    } else if isSelf {
+		return "lb"
+	} else if isSelf {
 		return "1"
 	} else {
 		return "0"
