@@ -192,7 +192,7 @@ func TestConfig_RabbitConnection_Default(t *testing.T) {
 }
 
 func TestConfig_RabbitConnection_LoadBalaner(t *testing.T) {
-    newValue := "loadbalancer"
+	newValue := "loadbalancer"
 	defer os.Unsetenv("RABBIT_CONNECTION")
 
 	os.Setenv("RABBIT_CONNECTION", newValue)
@@ -208,8 +208,8 @@ func TestConfig_RabbitConnection_Invalid(t *testing.T) {
 		if r := recover(); r == nil {
 			t.Errorf("initConfig should panic on invalid rabbit connection config")
 		}
-    }()
-    newValue := "invalid"
+	}()
+	newValue := "invalid"
 	defer os.Unsetenv("RABBIT_CONNECTION")
 
 	os.Setenv("RABBIT_CONNECTION", newValue)
