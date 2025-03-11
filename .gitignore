@@ -7,3 +7,4 @@ coverage.out
 debug.test
 vendor/
 dist/
+.vscode/

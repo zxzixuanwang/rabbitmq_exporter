@@ -2,53 +2,29 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
-	"os"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/tkanos/gonfig"
 )
 
 var (
-	config        rabbitExporterConfig
-	defaultConfig = rabbitExporterConfig{
-		RabbitURL:          "http://127.0.0.1:15672",
-		RabbitUsername:     "guest",
-		RabbitPassword:     "guest",
-		RabbitConnection:   "direct",
-		PublishPort:        "9419",
-		PublishAddr:        "",
-		OutputFormat:       "TTY", //JSON
-		CAFile:             "ca.pem",
-		CertFile:           "client-cert.pem",
-		KeyFile:            "client-key.pem",
-		InsecureSkipVerify: false,
-		ExcludeMetrics:     []string{},
-		SkipExchanges:      regexp.MustCompile("^$"),
-		IncludeExchanges:   regexp.MustCompile(".*"),
-		SkipQueues:         regexp.MustCompile("^$"),
-		IncludeQueues:      regexp.MustCompile(".*"),
-		SkipVHost:          regexp.MustCompile("^$"),
-		IncludeVHost:       regexp.MustCompile(".*"),
-		RabbitCapabilities: parseCapabilities("no_sort,bert"),
-		AlivenessVhost:     "/",
-		EnabledExporters:   []string{"exchange", "node", "overview", "queue"},
-		Timeout:            30,
-		MaxQueues:          0,
-		BindExchagesList:   []string{},
-	}
+	config rabbitExporterConfigs
 )
+
+type rabbitExporterConfigs struct {
+	Timeout      int                    `json:"timeout"`
+	Config       []rabbitExporterConfig `json:"rabbit_exporter_config"`
+	OutputFormat string                 `json:"output_format"`
+	PublishPort  string                 `json:"publish_port"`
+	PublishAddr  string                 `json:"publish_addr"`
+}
 
 type rabbitExporterConfig struct {
 	RabbitURL                string              `json:"rabbit_url"`
 	RabbitUsername           string              `json:"rabbit_user"`
 	RabbitPassword           string              `json:"rabbit_pass"`
 	RabbitConnection         string              `json:"rabbit_connection"`
-	PublishPort              string              `json:"publish_port"`
-	PublishAddr              string              `json:"publish_addr"`
-	OutputFormat             string              `json:"output_format"`
 	CAFile                   string              `json:"ca_file"`
 	CertFile                 string              `json:"cert_file"`
 	KeyFile                  string              `json:"key_file"`
@@ -70,7 +46,6 @@ type rabbitExporterConfig struct {
 	RabbitCapabilities       rabbitCapabilitySet `json:"-"`
 	AlivenessVhost           string              `json:"aliveness_vhost"`
 	EnabledExporters         []string            `json:"enabled_exporters"`
-	Timeout                  int                 `json:"timeout"`
 	MaxQueues                int                 `json:"max_queues"`
 	BindExchagesList         []string            `json:"bind_exchange_list"`
 	BindExchagesSet          map[string]bool     `json:"-"`
@@ -90,166 +65,37 @@ var allRabbitCapabilities = rabbitCapabilitySet{
 }
 
 func initConfigFromFile(configFile string) error {
-	config = rabbitExporterConfig{}
+	config = rabbitExporterConfigs{}
 	err := gonfig.GetConf(configFile, &config)
 	if err != nil {
 		return err
 	}
-
-	if url := config.RabbitURL; url != "" {
-		if valid, _ := regexp.MatchString("https?://[a-zA-Z.0-9]+", strings.ToLower(url)); !valid {
-			panic(fmt.Errorf("rabbit URL must start with http:// or https://"))
+	reg, err := regexp.Compile("https?://[a-zA-Z.0-9]+")
+	if err != nil {
+		panic(err)
+	}
+	for i := 0; i < len(config.Config); i++ {
+		conf := config.Config[i]
+		if url := conf.RabbitURL; url != "" {
+			if !reg.MatchString(strings.ToLower(url)) {
+				panic(fmt.Errorf("rabbit URL must start with http:// or https://"))
+			}
 		}
-	}
 
-	config.SkipExchanges = regexp.MustCompile(config.SkipExchangesString)
-	config.IncludeExchanges = regexp.MustCompile(config.IncludeExchangesString)
-	config.SkipQueues = regexp.MustCompile(config.SkipQueuesString)
-	config.IncludeQueues = regexp.MustCompile(config.IncludeQueuesString)
-	config.SkipVHost = regexp.MustCompile(config.SkipVHostString)
-	config.IncludeVHost = regexp.MustCompile(config.IncludeVHostString)
-	config.RabbitCapabilities = parseCapabilities(config.RabbitCapabilitiesString)
-	config.BindExchagesSet = make(map[string]bool, len(config.BindExchagesList))
-	for _, v := range config.BindExchagesList {
-		config.BindExchagesSet[v] = true
-	}
+		config.Config[i].SkipExchanges = regexp.MustCompile(conf.SkipExchangesString)
+		config.Config[i].IncludeExchanges = regexp.MustCompile(conf.IncludeExchangesString)
+		config.Config[i].SkipQueues = regexp.MustCompile(conf.SkipQueuesString)
+		config.Config[i].IncludeQueues = regexp.MustCompile(conf.IncludeQueuesString)
+		config.Config[i].SkipVHost = regexp.MustCompile(conf.SkipVHostString)
+		config.Config[i].IncludeVHost = regexp.MustCompile(conf.IncludeVHostString)
+		config.Config[i].RabbitCapabilities = parseCapabilities(conf.RabbitCapabilitiesString)
+		config.Config[i].BindExchagesSet = make(map[string]bool, len(conf.BindExchagesList))
+		for _, v := range conf.BindExchagesList {
+			config.Config[i].BindExchagesSet[v] = true
+		}
 
+	}
 	return nil
-}
-
-func initConfig() {
-	config = defaultConfig
-	if url := os.Getenv("RABBIT_URL"); url != "" {
-		if valid, _ := regexp.MatchString("https?://[a-zA-Z.0-9]+", strings.ToLower(url)); valid {
-			config.RabbitURL = url
-		} else {
-			panic(fmt.Errorf("rabbit URL must start with http:// or https://"))
-		}
-	}
-
-	if connection := os.Getenv("RABBIT_CONNECTION"); connection != "" {
-		if valid, _ := regexp.MatchString("(direct|loadbalancer)", connection); valid {
-			config.RabbitConnection = connection
-		} else {
-			panic(fmt.Errorf("rabbit connection must be direct or loadbalancer"))
-		}
-	}
-
-	var user string
-	var pass string
-
-	if len(os.Getenv("RABBIT_USER_FILE")) != 0 {
-		fileContents, err := ioutil.ReadFile(os.Getenv("RABBIT_USER_FILE"))
-		if err != nil {
-			panic(err)
-		}
-		user = strings.TrimSpace(string(fileContents))
-	} else {
-		user = os.Getenv("RABBIT_USER")
-	}
-
-	if user != "" {
-		config.RabbitUsername = user
-	}
-
-	if len(os.Getenv("RABBIT_PASSWORD_FILE")) != 0 {
-		fileContents, err := ioutil.ReadFile(os.Getenv("RABBIT_PASSWORD_FILE"))
-		if err != nil {
-			panic(err)
-		}
-		pass = strings.TrimSpace(string(fileContents))
-	} else {
-		pass = os.Getenv("RABBIT_PASSWORD")
-	}
-	if pass != "" {
-		config.RabbitPassword = pass
-	}
-
-	if port := os.Getenv("PUBLISH_PORT"); port != "" {
-		if _, err := strconv.Atoi(port); err == nil {
-			config.PublishPort = port
-		} else {
-			panic(fmt.Errorf("the configured port is not a valid number: %v", port))
-		}
-
-	}
-
-	if addr := os.Getenv("PUBLISH_ADDR"); addr != "" {
-		config.PublishAddr = addr
-	}
-
-	if output := os.Getenv("OUTPUT_FORMAT"); output != "" {
-		config.OutputFormat = output
-	}
-
-	if cafile := os.Getenv("CAFILE"); cafile != "" {
-		config.CAFile = cafile
-	}
-	if certfile := os.Getenv("CERTFILE"); certfile != "" {
-		config.CertFile = certfile
-	}
-	if keyfile := os.Getenv("KEYFILE"); keyfile != "" {
-		config.KeyFile = keyfile
-	}
-	if insecureSkipVerify := os.Getenv("SKIPVERIFY"); insecureSkipVerify == "true" || insecureSkipVerify == "1" || insecureSkipVerify == "TRUE" {
-		config.InsecureSkipVerify = true
-	}
-
-	if ExcludeMetrics := os.Getenv("EXCLUDE_METRICS"); ExcludeMetrics != "" {
-		config.ExcludeMetrics = strings.Split(ExcludeMetrics, ",")
-	}
-
-	if SkipExchanges := os.Getenv("SKIP_EXCHANGES"); SkipExchanges != "" {
-		config.SkipExchanges = regexp.MustCompile(SkipExchanges)
-	}
-
-	if IncludeExchanges := os.Getenv("INCLUDE_EXCHANGES"); IncludeExchanges != "" {
-		config.IncludeExchanges = regexp.MustCompile(IncludeExchanges)
-	}
-
-	if SkipQueues := os.Getenv("SKIP_QUEUES"); SkipQueues != "" {
-		config.SkipQueues = regexp.MustCompile(SkipQueues)
-	}
-
-	if IncludeQueues := os.Getenv("INCLUDE_QUEUES"); IncludeQueues != "" {
-		config.IncludeQueues = regexp.MustCompile(IncludeQueues)
-	}
-
-	if SkipVHost := os.Getenv("SKIP_VHOST"); SkipVHost != "" {
-		config.SkipVHost = regexp.MustCompile(SkipVHost)
-	}
-
-	if IncludeVHost := os.Getenv("INCLUDE_VHOST"); IncludeVHost != "" {
-		config.IncludeVHost = regexp.MustCompile(IncludeVHost)
-	}
-
-	if rawCapabilities := os.Getenv("RABBIT_CAPABILITIES"); rawCapabilities != "" {
-		config.RabbitCapabilities = parseCapabilities(rawCapabilities)
-	}
-
-	if enabledExporters := os.Getenv("RABBIT_EXPORTERS"); enabledExporters != "" {
-		config.EnabledExporters = strings.Split(enabledExporters, ",")
-	}
-
-	if alivenessVhost := os.Getenv("ALIVENESS_VHOST"); alivenessVhost != "" {
-		config.AlivenessVhost = alivenessVhost
-	}
-
-	if timeout := os.Getenv("RABBIT_TIMEOUT"); timeout != "" {
-		t, err := strconv.Atoi(timeout)
-		if err != nil {
-			panic(fmt.Errorf("timeout is not a number: %v", err))
-		}
-		config.Timeout = t
-	}
-
-	if maxQueues := os.Getenv("MAX_QUEUES"); maxQueues != "" {
-		m, err := strconv.Atoi(maxQueues)
-		if err != nil {
-			panic(fmt.Errorf("maxQueues is not a number: %v", err))
-		}
-		config.MaxQueues = m
-	}
 }
 
 func parseCapabilities(raw string) rabbitCapabilitySet {
