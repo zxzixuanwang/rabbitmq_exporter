@@ -6,10 +6,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func init() {
-	RegisterExporter("shovel", newExporterShovel)
-}
-
 var (
 	//shovelLabels are the labels for all shovel mertrics
 	shovelLabels = []string{"cluster", "vhost", "shovel", "type", "self", "state"}
@@ -18,19 +14,24 @@ var (
 )
 
 type exporterShovel struct {
-	stateMetric *prometheus.GaugeVec
+	stateMetric map[string]*prometheus.GaugeVec
 }
 
 func newExporterShovel() Exporter {
+	stateMetrics := make(map[string]*prometheus.GaugeVec, len(targetList))
+	for instance := range targetList {
+		stateMetrics[instance] = newGaugeVec("shovel_state", "A metric with a value of constant '1' for each shovel in a certain state", appendInstanceLabel(shovelLabels))
+	}
 	return exporterShovel{
-		stateMetric: newGaugeVec("shovel_state", "A metric with a value of constant '1' for each shovel in a certain state", shovelLabels),
+		stateMetric: stateMetrics,
 	}
 }
 
-func (e exporterShovel) Collect(ctx context.Context, ch chan<- prometheus.Metric) error {
-	e.stateMetric.Reset()
+func (e exporterShovel) Collect(ctx context.Context, ch chan<- prometheus.Metric, instance string) error {
+	info := targetList[instance]
+	e.stateMetric[instance].Reset()
 
-	shovelData, err := getStatsInfo(config, "shovels", shovelLabelKeys)
+	shovelData, err := info.req.getStatsInfo(*info.conf, "shovels", shovelLabelKeys)
 	if err != nil {
 		return err
 	}
@@ -45,14 +46,15 @@ func (e exporterShovel) Collect(ctx context.Context, ch chan<- prometheus.Metric
 	}
 
 	for _, shovel := range shovelData {
-		self := selfLabel(config, shovel.labels["node"] == selfNode)
-		e.stateMetric.WithLabelValues(cluster, shovel.labels["vhost"], shovel.labels["name"], shovel.labels["type"], self, shovel.labels["state"]).Set(1)
+		self := selfLabel(*info.conf, shovel.labels["node"] == selfNode)
+		e.stateMetric[instance].WithLabelValues(cluster, shovel.labels["vhost"], shovel.labels["name"], shovel.labels["type"], self, shovel.labels["state"], instance).Set(1)
 	}
 
-	e.stateMetric.Collect(ch)
+	e.stateMetric[instance].Collect(ch)
+
 	return nil
 }
 
-func (e exporterShovel) Describe(ch chan<- *prometheus.Desc) {
-	e.stateMetric.Describe(ch)
+func (e exporterShovel) Describe(ch chan<- *prometheus.Desc, instance string) {
+	e.stateMetric[instance].Describe(ch)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -39,53 +40,70 @@ func main() {
 		return
 	}
 
-	err := initConfigFromFile(*configFile)                  //Try parsing config file
-	if _, isPathError := err.(*os.PathError); isPathError { // No file => use environment variables
-		initConfig()
-	} else if err != nil {
+	err := initConfigFromFile(*configFile) //Try parsing config file
+	if err != nil {
 		panic(err)
 	}
 
 	initLogger()
-	initClient()
+	for _, v := range config.Config {
+		c := initClient(v)
+		s := strings.Split(v.RabbitURL, "://")
+		if len(s) < 1 {
+			panic("invalid url")
+		}
+		targetList[s[1]] = targetInfo{
+			conf:     &v,
+			req:      c,
+			instance: s[1],
+		}
+
+		log.WithFields(log.Fields{
+			"VERSION":    Version,
+			"REVISION":   Revision,
+			"BRANCH":     Branch,
+			"BUILD_DATE": BuildDate,
+			//		"RABBIT_PASSWORD": config.RABBIT_PASSWORD,
+		}).Info("Starting RabbitMQ exporter")
+
+		log.WithFields(log.Fields{
+			"PUBLISH_ADDR":        config.PublishAddr,
+			"PUBLISH_PORT":        config.PublishPort,
+			"RABBIT_URL":          v.RabbitURL,
+			"RABBIT_USER":         v.RabbitUsername,
+			"RABBIT_CONNECTION":   v.RabbitConnection,
+			"OUTPUT_FORMAT":       config.OutputFormat,
+			"RABBIT_CAPABILITIES": formatCapabilities(v.RabbitCapabilities),
+			"RABBIT_EXPORTERS":    v.EnabledExporters,
+			"CAFILE":              v.CAFile,
+			"CERTFILE":            v.CertFile,
+			"KEYFILE":             v.KeyFile,
+			"SKIPVERIFY":          v.InsecureSkipVerify,
+			"EXCLUDE_METRICS":     v.ExcludeMetrics,
+			"SKIP_EXCHANGES":      v.SkipExchanges.String(),
+			"INCLUDE_EXCHANGES":   v.IncludeExchanges.String(),
+			"SKIP_QUEUES":         v.SkipQueues.String(),
+			"INCLUDE_QUEUES":      v.IncludeQueues.String(),
+			"SKIP_VHOST":          v.SkipVHost.String(),
+			"INCLUDE_VHOST":       v.IncludeVHost.String(),
+			"RABBIT_TIMEOUT":      config.Timeout,
+			"MAX_QUEUES":          v.MaxQueues,
+			//		"RABBIT_PASSWORD": config.RABBIT_PASSWORD,
+		}).Info("Active Configuration")
+	}
+	loadModule()
+	// prometheus.MustRegister(tmpSliceExport...)
 	exporter := newExporter()
-	prometheus.MustRegister(exporter)
 
-	log.WithFields(log.Fields{
-		"VERSION":    Version,
-		"REVISION":   Revision,
-		"BRANCH":     Branch,
-		"BUILD_DATE": BuildDate,
-		//		"RABBIT_PASSWORD": config.RABBIT_PASSWORD,
-	}).Info("Starting RabbitMQ exporter")
-
-	log.WithFields(log.Fields{
-		"PUBLISH_ADDR":        config.PublishAddr,
-		"PUBLISH_PORT":        config.PublishPort,
-		"RABBIT_URL":          config.RabbitURL,
-		"RABBIT_USER":         config.RabbitUsername,
-		"RABBIT_CONNECTION":   config.RabbitConnection,
-		"OUTPUT_FORMAT":       config.OutputFormat,
-		"RABBIT_CAPABILITIES": formatCapabilities(config.RabbitCapabilities),
-		"RABBIT_EXPORTERS":    config.EnabledExporters,
-		"CAFILE":              config.CAFile,
-		"CERTFILE":            config.CertFile,
-		"KEYFILE":             config.KeyFile,
-		"SKIPVERIFY":          config.InsecureSkipVerify,
-		"EXCLUDE_METRICS":     config.ExcludeMetrics,
-		"SKIP_EXCHANGES":      config.SkipExchanges.String(),
-		"INCLUDE_EXCHANGES":   config.IncludeExchanges.String(),
-		"SKIP_QUEUES":         config.SkipQueues.String(),
-		"INCLUDE_QUEUES":      config.IncludeQueues.String(),
-		"SKIP_VHOST":          config.SkipVHost.String(),
-		"INCLUDE_VHOST":       config.IncludeVHost.String(),
-		"RABBIT_TIMEOUT":      config.Timeout,
-		"MAX_QUEUES":          config.MaxQueues,
-		//		"RABBIT_PASSWORD": config.RABBIT_PASSWORD,
-	}).Info("Active Configuration")
+	gatherers := prometheus.Gatherers{
+		prometheus.DefaultGatherer,
+	}
+	nReg := prometheus.NewRegistry()
+	nReg.MustRegister(exporter)
+	gatherers = append(gatherers, nReg)
 
 	handler := http.NewServeMux()
-	handler.Handle("/metrics", promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{}))
+	handler.Handle("/metrics", promhttp.HandlerFor(gatherers, promhttp.HandlerOpts{}))
 	handler.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<html>
              <head><title>RabbitMQ Exporter</title></head>
@@ -96,10 +114,17 @@ func main() {
              </html>`))
 	})
 	handler.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		if exporter.LastScrapeOK() {
+		dead := ""
+		/* 		for k, v := range tmpExport {
+			if !v.LastScrapeOK() {
+				dead += k + ","
+			}
+		} */
+		if len(dead) == 0 {
 			w.WriteHeader(http.StatusOK)
 		} else {
-			w.WriteHeader(http.StatusGatewayTimeout)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("unhealthy target: %s", strings.TrimRight(dead, ","))))
 		}
 	})
 
