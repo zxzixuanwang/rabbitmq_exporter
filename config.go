@@ -10,37 +10,6 @@ import (
 
 var (
 	config rabbitExporterConfigs
-
-	/* defaultConfig = rabbitExporterConfigs{
-		Timeout: 30,
-		Config: []rabbitExporterConfig{
-			{
-				RabbitURL:          "http://127.0.0.1:15672",
-				RabbitUsername:     "guest",
-				RabbitPassword:     "guest",
-				RabbitConnection:   "direct",
-				CAFile:             "ca.pem",
-				CertFile:           "client-cert.pem",
-				KeyFile:            "client-key.pem",
-				InsecureSkipVerify: false,
-				ExcludeMetrics:     []string{},
-				SkipExchanges:      regexp.MustCompile("^$"),
-				IncludeExchanges:   regexp.MustCompile(".*"),
-				SkipQueues:         regexp.MustCompile("^$"),
-				IncludeQueues:      regexp.MustCompile(".*"),
-				SkipVHost:          regexp.MustCompile("^$"),
-				IncludeVHost:       regexp.MustCompile(".*"),
-				RabbitCapabilities: parseCapabilities("no_sort,bert"),
-				AlivenessVhost:     "/",
-				EnabledExporters:   []string{"exchange", "node", "overview", "queue"},
-				MaxQueues:          0,
-				BindExchagesList:   []string{},
-			},
-		},
-		OutputFormat: "TTY", //JSON
-		PublishPort:  "9419",
-		PublishAddr:  "",
-	} */
 )
 
 type rabbitExporterConfigs struct {
