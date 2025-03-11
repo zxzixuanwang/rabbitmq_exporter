@@ -13,15 +13,17 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var client = &http.Client{Timeout: 15 * time.Second} //default client for test. Client is initialized in initClient()
+type request struct {
+	*http.Client
+}
 
-func initClient() {
+func initClient(oConfig rabbitExporterConfig) *request {
 	var roots *x509.CertPool
 
-	if data, err := os.ReadFile(config.CAFile); err == nil {
+	if data, err := os.ReadFile(oConfig.CAFile); err == nil {
 		roots = x509.NewCertPool()
 		if !roots.AppendCertsFromPEM(data) {
-			log.WithField("filename", config.CAFile).Error("Adding certificate to rootCAs failed")
+			log.WithField("filename", oConfig.CAFile).Error("Adding certificate to rootCAs failed")
 		}
 	} else {
 		var err error
@@ -35,33 +37,34 @@ func initClient() {
 
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: config.InsecureSkipVerify,
+			InsecureSkipVerify: oConfig.InsecureSkipVerify,
 			RootCAs:            roots,
 		},
 	}
 
-	_, errCertFile := os.Stat(config.CertFile)
-	_, errKeyFile := os.Stat(config.KeyFile)
+	_, errCertFile := os.Stat(oConfig.CertFile)
+	_, errKeyFile := os.Stat(oConfig.KeyFile)
 	if errCertFile == nil && errKeyFile == nil {
-		log.Info("Using client certificate: " + config.CertFile + " and key: " + config.KeyFile)
-		if cert, err := tls.LoadX509KeyPair(config.CertFile, config.KeyFile); err == nil {
+		log.Info("Using client certificate: " + oConfig.CertFile + " and key: " + oConfig.KeyFile)
+		if cert, err := tls.LoadX509KeyPair(oConfig.CertFile, oConfig.KeyFile); err == nil {
 			tr.TLSClientConfig.ClientAuth = tls.RequireAndVerifyClientCert
 			tr.TLSClientConfig.Certificates = []tls.Certificate{cert}
 		} else {
-			log.WithField("certFile", config.CertFile).
-				WithField("keyFile", config.KeyFile).
+			log.WithField("certFile", oConfig.CertFile).
+				WithField("keyFile", oConfig.KeyFile).
 				Error("Loading client certificate and key failed: ", err)
 		}
 	}
 
-	client = &http.Client{
-		Transport: tr,
-		Timeout:   time.Duration(config.Timeout) * time.Second,
+	return &request{
+		&http.Client{
+			Transport: tr,
+			Timeout:   time.Duration(config.Timeout) * time.Second,
+		},
 	}
-
 }
 
-func apiRequest(config rabbitExporterConfig, endpoint string) ([]byte, string, error) {
+func (r *request) apiRequest(config rabbitExporterConfig, endpoint string) ([]byte, string, error) {
 	var args string
 	enabled, exists := config.RabbitCapabilities[rabbitCapNoSort]
 	if enabled && exists {
@@ -82,7 +85,7 @@ func apiRequest(config rabbitExporterConfig, endpoint string) ([]byte, string, e
 	req.SetBasicAuth(config.RabbitUsername, config.RabbitPassword)
 	req.Header.Add("Accept", acceptContentType(config))
 
-	resp, err := client.Do(req)
+	resp, err := r.Do(req)
 
 	if err != nil || resp == nil || resp.StatusCode != 200 {
 		status := 0
@@ -104,18 +107,18 @@ func apiRequest(config rabbitExporterConfig, endpoint string) ([]byte, string, e
 	return body, content, nil
 }
 
-func loadMetrics(config rabbitExporterConfig, endpoint string) (RabbitReply, error) {
-	body, content, err := apiRequest(config, endpoint)
+func (r *request) loadMetrics(config rabbitExporterConfig, endpoint string) (RabbitReply, error) {
+	body, content, err := r.apiRequest(config, endpoint)
 	if err != nil {
 		return nil, err
 	}
 	return MakeReply(content, body)
 }
 
-func getStatsInfo(config rabbitExporterConfig, apiEndpoint string, labels []string) ([]StatsInfo, error) {
+func (r *request) getStatsInfo(config rabbitExporterConfig, apiEndpoint string, labels []string) ([]StatsInfo, error) {
 	var q []StatsInfo
 
-	reply, err := loadMetrics(config, apiEndpoint)
+	reply, err := r.loadMetrics(config, apiEndpoint)
 	if err != nil {
 		return q, err
 	}
@@ -125,10 +128,10 @@ func getStatsInfo(config rabbitExporterConfig, apiEndpoint string, labels []stri
 	return q, nil
 }
 
-func getMetricMap(config rabbitExporterConfig, apiEndpoint string) (MetricMap, error) {
+func (r *request) getMetricMap(config rabbitExporterConfig, apiEndpoint string) (MetricMap, error) {
 	var overview MetricMap
 
-	body, content, err := apiRequest(config, apiEndpoint)
+	body, content, err := r.apiRequest(config, apiEndpoint)
 	if err != nil {
 		return overview, err
 	}
